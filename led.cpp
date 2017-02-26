@@ -1,16 +1,21 @@
 #include "Arduino.h"
 #include "led.h"
+#include "scheduler.h"
 
-#define L_RED   0
-#define L_GREEN 1
-#define L_BLUE  2
+#define R_RED   0
+#define R_GREEN 1
+#define R_BLUE  2
 
-#define R_RED   3
-#define R_GREEN 4
-#define R_BLUE  5
+#define L_RED   3
+#define L_GREEN 4
+#define L_BLUE  5
 
 
-void InitLED(void)
+static LED_COLOUR myColour;
+static LED_COLOUR currentColour;
+static bool flash;
+
+void InitLED(LED_COLOUR colour)
 {
     pinMode(L_RED, OUTPUT);
     pinMode(L_BLUE, OUTPUT);
@@ -19,14 +24,51 @@ void InitLED(void)
     pinMode(R_BLUE, OUTPUT);
     pinMode(R_GREEN, OUTPUT);
 
+    SetLED(true, true, colour);
+    myColour = colour;
+    currentColour = colour;
+
 }
 
+void ResetLED(void)
+{
+    SetLED(true, true, myColour);
+    CancelTask(NextColour);
+    CancelTask(FlashLED);
+}
+
+void FlashLED(void)
+{
+    if(flash)
+    {
+        SetLED(true, false, currentColour);
+        SetLED(false, true, LED_OFF);
+    }
+    else
+    {
+        SetLED(false, true, currentColour);
+        SetLED(true, false, LED_OFF);
+    }
+   
+    flash = !flash;
+}
+
+void NextColour(void)
+{
+    currentColour = LED_COLOUR((currentColour + 1) % (LED_MAX_COLOUR - 1));
+    SetLED(true, true, currentColour);
+}
 
 void SetLED(bool left, bool right, LED_COLOUR ledColour)
 {
     bool r = false;
     bool g = false;
     bool b = false;
+
+    if(ledColour != LED_OFF)
+    {
+        currentColour = ledColour;
+    }
 
     switch(ledColour)
     {
@@ -65,7 +107,7 @@ void SetLED(bool left, bool right, LED_COLOUR ledColour)
         g=true;
         b=true;
         break;
-    case LED_OFF:
+    default:
         r=false;
         g=false;
         b=false;

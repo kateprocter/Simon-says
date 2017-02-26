@@ -1,48 +1,82 @@
 
 #include <Wire.h>
-#include "botface.h"
 #include "eyes.h"
-#include "mouth.h"
+#include "botface.h"
 
 #define UPDATE_COUNT_MOVE_EYES  3
 #define UPDATE_COUNT_BLINK      1
 
-typedef struct
-{
-    int pos;
-    int lid;
-}EYE_STATE;
+#define MAX_PENDING_ACTIONS 6
 
 typedef enum
 {
-    EYES_MOVELEFT,
-    EYES_MOVERIGHT,
+    EYES_MOVE,
     EYES_BLINKOPEN,
     EYES_BLINKCLOSE,
+    EYES_SLEEP,
+    EYES_WAKE,
     EYES_PAUSE,
 }EYE_ACTION;
+
+
+typedef enum
+{
+    EYE_R=0,
+    EYE_L,
+}EYE_DIR;
+
+typedef struct
+{
+    int current;
+    int target;
+    EYE_DIR dir;
+    
+    
+}EYE_MOVEMENT;
 
 typedef struct
 {
     EYE_ACTION action;
-    EYE_STATE current;
-    EYE_STATE target;
-    int updateCount; 
-    int updateCountTarget;  
-    int pause;
+    EYE_MOVEMENT left;
+    EYE_MOVEMENT right;
+    int lid;
+    bool blinkL;
+    bool blinkR;
+    int updateCount;
+    int pauseCount;
+    bool isInstruction;
+    void (*callback) (void);
 
 }EYES;
 
 
-static EYES eye;
+typedef struct
+{
+    EYE_COMMAND action;
+    int leftTarget;
+    int rightTarget;
+    int pause;
+    void (*callback)(void);
+}EYE_PENDING;    
 
 
+static EYES eyes;
+static EYE_PENDING actionQueue[MAX_PENDING_ACTIONS];
+static int numPendingActions = 0;
+static int nextPendingAction = 0;
+static int FindNextEyePosition(int current, int target, EYE_DIR dir);
+static ROBOT_MOUTH nextMouth;
+
+static void GetNextQueuedEyeAction(void);
+static void GetRandomEyeAction(void);
 static void GetNextEyeAction(void);
 static void ClearBotFace(void);
 static void ShowLeftEye(int eyeIndex);
 static void ShowRightEye(int eyeIndex);
-static void CloseEye(byte eyeIndex, byte blinkDepth, bool left, bool right);
-static void OpenEye(byte eyeIndex, byte blinkDepth, bool left, bool right);
+static void CloseLeftEye(byte eyeIndex, byte blinkDepth);
+static void CloseRightEye(byte eyeIndex, byte blinkDepth);
+static void OpenLeftEye(byte eyeIndex, byte blinkDepth);
+static void OpenRightEye(byte eyeIndex, byte blinkDepth);
 static void ShowMouth(ROBOT_MOUTH mouth);
 static void ScreenInit(void);
 static void StartTransfer(byte startCol, byte endCol, byte startPage, byte endPage);
@@ -50,7 +84,6 @@ static void StartTransfer(byte startCol, byte endCol, byte startPage, byte endPa
 
 void InitBotFace(void)
 {
-
 
     ScreenInit();
     ClearBotFace();
@@ -60,147 +93,318 @@ void InitBotFace(void)
     ShowRightEye(12);
     ShowMouth(ROBOTMOUTH_HAPPY);
 
-    eye.current.pos = 12;
-    eye.current.lid = 0;
+    eyes.left.current = 12;
+    eyes.right.current = 12;
+    eyes.lid = 0;
 
     GetNextEyeAction();
+}
+
+void SetMouth(ROBOT_MOUTH mouth)
+{
+    nextMouth = mouth;
 }
 
 
 void UpdateEyes(void)
 {
 
-    eye.updateCount++;
+    eyes.updateCount++;
 
-    if(eye.updateCount < eye.updateCountTarget)
+    switch(eyes.action)
     {
-        return;
-    }
+    case EYES_MOVE:
 
+        if(eyes.updateCount >= UPDATE_COUNT_MOVE_EYES)
+        {
+            eyes.left.current = FindNextEyePosition(eyes.left.current, eyes.left.target, eyes.left.dir);
+            eyes.right.current = FindNextEyePosition(eyes.right.current, eyes.right.target, eyes.right.dir);
 
-    switch(eye.action)
-    {
-        case EYES_MOVELEFT:
-
-            eye.current.pos = (eye.current.pos + 1) % NUM_EYES;
-
-            ShowLeftEye(eye.current.pos);
-            ShowRightEye(eye.current.pos);
-
-            if(eye.current.pos == eye.target.pos)
+            ShowLeftEye(eyes.left.current);
+            ShowRightEye(eyes.right.current);
+        
+            if((eyes.left.current == eyes.left.target) && (eyes.right.current == eyes.right.target))
             {
-                eye.action = EYES_PAUSE;
-                eye.updateCountTarget = eye.pause;
+                eyes.action = EYES_PAUSE;        
             }
 
-            eye.updateCount = 0;
+            eyes.updateCount = 0;
+        }
+        break;
 
-            break;
+    case EYES_BLINKOPEN:
 
-        case EYES_MOVERIGHT:
+        if(eyes.updateCount >= UPDATE_COUNT_BLINK)
+        {
+            eyes.lid--;
 
-            eye.current.pos = (eye.current.pos  + (NUM_EYES - 1)) % NUM_EYES;
-
-            ShowLeftEye(eye.current.pos);
-            ShowRightEye(eye.current.pos);
-
-            if(eye.current.pos == eye.target.pos)
+            if(eyes.blinkL)
             {
-                eye.action = EYES_PAUSE;
-                eye.updateCountTarget = eye.pause;
+                OpenLeftEye(eyes.left.current, eyes.lid);
             }
-
-            eye.updateCount = 0;
-            break;
-
-        case EYES_BLINKOPEN:
-
-            eye.current.lid = eye.current.lid - 1;
-
-            OpenEye(eye.current.pos, eye.current.lid, true, true);
-
-            if(eye.current.lid == 0)
+            if(eyes.blinkR)
             {
-                eye.action = EYES_PAUSE;
-                eye.updateCountTarget = eye.pause;
+                OpenRightEye(eyes.right.current, eyes.lid);
             }
-
-            eye.updateCount = 0;
-            break;
-
-        case EYES_BLINKCLOSE:
-
-            eye.current.lid = eye.current.lid + 1;
-
-            CloseEye(eye.current.pos, eye.current.lid, true, true);
-
-            if(eye.current.lid ==  (EYE_PAGES * 8 -1))
+            if(eyes.lid == 0)
             {
-                eye.action = EYES_BLINKOPEN;
+                eyes.action = EYES_PAUSE;
             }
+            eyes.updateCount = 0;
+        }
+        break;
 
-            eye.updateCount = 0;
-            break;
+    case EYES_BLINKCLOSE:
 
-        case EYES_PAUSE:
 
+        if(eyes.updateCount >= UPDATE_COUNT_BLINK)
+        {
+            eyes.lid++;
+            
+            if(eyes.blinkL)
+            {
+                CloseLeftEye(eyes.left.current, eyes.lid);
+            }
+            if(eyes.blinkR)
+            {
+                CloseRightEye(eyes.right.current, eyes.lid);
+            }
+            if(eyes.lid == ((EYE_PAGES * 8) -1))
+            {
+                eyes.action = EYES_BLINKOPEN;
+            }
+            eyes.updateCount = 0;
+        }
+        break;
+
+     case EYES_SLEEP:
+
+        if(eyes.lid < ((EYE_PAGES*8) - 1))
+        {
+                    
+            eyes.lid++;
+            CloseLeftEye(eyes.left.current, eyes.lid);
+            CloseRightEye(eyes.right.current, eyes.lid);
+        }
+        else
+        {
+            eyes.action = EYES_PAUSE;
+        }
+        break;
+
+     case EYES_WAKE:
+
+        if(eyes.lid == 0)
+        {
             GetNextEyeAction();
-            break;
+        }
+        else
+        {
+            eyes.lid--;
+            OpenLeftEye(eyes.left.current, eyes.lid);
+            OpenRightEye(eyes.right.current, eyes.lid);
+        }
+        
+     case EYES_PAUSE:
+
+           if(nextMouth != ROBOTMOUTH_NONE)
+           {
+                ShowMouth(nextMouth);
+                nextMouth = ROBOTMOUTH_NONE;
+           }
+
+           if(eyes.updateCount >= eyes.pauseCount || (!eyes.isInstruction  && (numPendingActions > 0)))
+           {
+                GetNextEyeAction();
+           }
+           break;
     }
 
 }
 
+bool QueueEyeAction(EYE_COMMAND action, int leftTarget, int rightTarget, int pause, void (*callback)(void))
+{
+    int q;
+
+    if(numPendingActions == MAX_PENDING_ACTIONS)
+    {
+        return false;
+    }
+    else
+    {
+        q = (nextPendingAction + numPendingActions) % MAX_PENDING_ACTIONS;
+        actionQueue[q].action = action;
+        actionQueue[q].leftTarget = leftTarget;
+        actionQueue[q].rightTarget = rightTarget;
+        actionQueue[q].pause = pause;
+        actionQueue[q].callback = callback;
+
+        numPendingActions++;
+    }         
+
+    return true;
+}
+
+
+static int FindNextEyePosition(int current, int target, EYE_DIR dir)
+{
+
+    if(current == target)
+    {
+        return current;
+    }
+    
+    switch (dir)
+    {
+    case EYE_L:
+
+        return (current + (NUM_EYES - 1)) % NUM_EYES;
+        break;
+
+    case EYE_R:
+
+        return (current + 1) % NUM_EYES;
+        break;
+    default:
+        return current;
+    }
+}
 
 static void GetNextEyeAction(void)
 {
 
-    int randAction;
-    int randMovement;
-
-
-    randAction = (int)random(0,12);
-
-    eye.pause = (int)random(100,500);
-
-
-    if(randAction < 4)
+    if(eyes.isInstruction && eyes.callback)
     {
-        eye.action = EYES_MOVELEFT;
-        eye.updateCountTarget = UPDATE_COUNT_MOVE_EYES;
-        randMovement = (int)random(1,10);
-        eye.target.pos = (eye.current.pos + randMovement) % NUM_EYES;
-        eye.updateCount = 0;
+        (*eyes.callback)();
+        eyes.callback = NULL;
     }
-    else if(randAction < 5)
+    if( numPendingActions == 0)
     {
-        eye.action = EYES_MOVELEFT;
-        eye.updateCountTarget = UPDATE_COUNT_MOVE_EYES;
-        randMovement = (int)random(1,20);
-        eye.target.pos = (eye.current.pos + randMovement) % NUM_EYES;
-    }
-    else if(randAction < 9)
-    {
-        eye.action = EYES_MOVERIGHT;
-        eye.updateCountTarget = UPDATE_COUNT_MOVE_EYES;
-        randMovement = (int)random(1,10);
-        eye.target.pos = ((eye.current.pos + NUM_EYES) - randMovement) % NUM_EYES;
-        eye.updateCount = 0;
-    }
-    else if(randAction < 10)
-    {
-        eye.action = EYES_MOVERIGHT;
-        eye.updateCountTarget = UPDATE_COUNT_MOVE_EYES;
-        randMovement = (int)random(1,20);
-        eye.target.pos = ((eye.current.pos + NUM_EYES) - randMovement) % NUM_EYES;
-        eye.updateCount = 0;
+        GetRandomEyeAction();
     }
     else
     {
-        eye.action = EYES_BLINKCLOSE;
-        eye.updateCountTarget = UPDATE_COUNT_BLINK;
-        eye.updateCount = 0;
-        eye.pause = (int)random(50,100);
+        GetNextQueuedEyeAction();
     }
+    
+}
+
+static void GetNextQueuedEyeAction(void)
+{
+    Serial.println("Get Queued action");
+    
+    switch(actionQueue[nextPendingAction].action)
+    {
+    case EYE_COMMAND_LOOK:
+
+        eyes.left.target = actionQueue[nextPendingAction].leftTarget;
+        eyes.right.target = actionQueue[nextPendingAction].rightTarget;
+        eyes.action = EYES_MOVE;
+        eyes.pauseCount = actionQueue[nextPendingAction].pause;
+        break;
+
+    case EYE_COMMAND_BLINK:
+
+        eyes.action = EYES_BLINKCLOSE;
+        eyes.pauseCount = actionQueue[nextPendingAction].pause;
+        break;
+
+    case EYE_COMMAND_PAUSE:
+
+        eyes.action = EYES_PAUSE;
+        eyes.pauseCount = actionQueue[nextPendingAction].pause;
+        break;
+
+     case EYE_COMMAND_SLEEP:
+
+        eyes.action = EYES_SLEEP;
+        break;
+
+    case EYE_COMMAND_WAKE:
+    
+        eyes.action = EYES_WAKE;
+        break;
+    }
+
+    eyes.isInstruction = true;
+    eyes.updateCount = 0;
+    eyes.callback = actionQueue[nextPendingAction].callback;
+    numPendingActions--;
+    nextPendingAction = (nextPendingAction + 1) % MAX_PENDING_ACTIONS;
+    
+}
+
+static void GetRandomEyeAction(void)
+{
+
+    int randAction;
+    int randMovement;
+    int randBlink;
+
+    randAction = (int)random(0,12);
+    eyes.pauseCount = (int)random(50,300);   
+   
+
+    if(randAction < 5)
+    {
+        eyes.action = EYES_MOVE;
+
+        if(randAction < 4)
+        {
+          randMovement = (int)random(1,10);  
+        }
+        else
+        {
+           randMovement = (int)random(1,20); 
+        }
+        
+        eyes.left.target = (eyes.left.current + randMovement) % NUM_EYES;
+        eyes.left.dir = EYE_R;
+        eyes.right.target = (eyes.right.current + randMovement) % NUM_EYES;    
+        eyes.right.dir = EYE_R;
+    }
+    else if(randAction < 10)
+    {
+        eyes.action = EYES_MOVE;
+
+        if(randAction < 9)
+        {
+          randMovement = (int)random(1,10);  
+        }
+        else
+        {
+           randMovement = (int)random(1,20); 
+        }
+        eyes.left.target = ((eyes.left.current + NUM_EYES) - randMovement) % NUM_EYES;
+        eyes.left.dir = EYE_L;
+        eyes.right.target = ((eyes.right.current + NUM_EYES) - randMovement) % NUM_EYES;
+        eyes.right.dir = EYE_L;
+    }
+    else
+    {
+        eyes.action = EYES_BLINKCLOSE;
+        randBlink = (int) random(1,20);
+        if(randBlink < 18)
+        {
+            eyes.blinkL = true;
+            eyes.blinkR = true;
+        }
+        else if(randBlink < 19)
+        {
+            eyes.blinkL = false;
+            eyes.blinkR = true;
+            
+        }
+        else
+        {
+            eyes.blinkL = true;
+            eyes.blinkR = false;      
+        } 
+
+    }
+
+    eyes.updateCount = 0;
+    eyes.isInstruction = false;
 }
 
 
@@ -243,7 +447,7 @@ static void ShowLeftEye(int eyeIndex)
 
         for(int j=0; j < EYE_PAGES; j++)
         {
-            Wire.write(eyes[eyeIndex][i]);
+            Wire.write(eyePics[eyeIndex][i]);
             i++;
         }
         i--;
@@ -264,7 +468,7 @@ static void ShowRightEye(int eyeIndex)
 
         for(int j=0; j < EYE_PAGES; j++)
         {
-            Wire.write(eyes[eyeIndex][i]);
+            Wire.write(eyePics[eyeIndex][i]);
             i++;
         }
         i--;
@@ -275,7 +479,7 @@ static void ShowRightEye(int eyeIndex)
 }
 
 
-static void CloseEye(byte eyeIndex, byte blinkDepth, bool left, bool right)
+static void CloseLeftEye(byte eyeIndex, byte blinkDepth)
 {
 
     byte blinkPage;
@@ -302,49 +506,68 @@ static void CloseEye(byte eyeIndex, byte blinkDepth, bool left, bool right)
 
     eyeByte = blinkPage;
 
-    if(left)
+    StartTransfer(LEFT_EYE_START_COLUMN,LEFT_EYE_END_COLUMN, blinkPage, blinkPage);
+
+    Wire.beginTransmission(BOTFACE_ADDRESS);
+    Wire.write(BOTFACE_CONTROL_DATA_STREAM);
+
+    for(j=LEFT_EYE_START_COLUMN; j< LEFT_EYE_MID; j++)
     {
+        blinkedEye = (closedeye[eyeByte] & mask) | eyePics[eyeIndex][eyeByte];
+        Wire.write(blinkedEye);
+        eyeByte += EYE_PAGES;
+    }
 
-        StartTransfer(LEFT_EYE_START_COLUMN,LEFT_EYE_END_COLUMN, blinkPage, blinkPage);
+    Wire.endTransmission();
 
-        Wire.beginTransmission(BOTFACE_ADDRESS);
-        Wire.write(BOTFACE_CONTROL_DATA_STREAM);
+    Wire.beginTransmission(BOTFACE_ADDRESS);
+    Wire.write(BOTFACE_CONTROL_DATA_STREAM);
 
-        for(j=LEFT_EYE_START_COLUMN; j< LEFT_EYE_MID; j++)
-        {
-            blinkedEye = (closedeye[eyeByte] & mask) | eyes[eyeIndex][eyeByte];
-            Wire.write(blinkedEye);
-            eyeByte += EYE_PAGES;
-        }
+    for(j=LEFT_EYE_MID; j< LEFT_EYE_END_COLUMN + 1; j++)
+    {
+        blinkedEye = (closedeye[eyeByte] & mask) | eyePics[eyeIndex][eyeByte];
+        Wire.write(blinkedEye);
+        eyeByte += EYE_PAGES;
+    }
 
-        Wire.endTransmission();
+    Wire.endTransmission();
+}
 
-        Wire.beginTransmission(BOTFACE_ADDRESS);
-        Wire.write(BOTFACE_CONTROL_DATA_STREAM);
+static void CloseRightEye(byte eyeIndex, byte blinkDepth)
+{
 
-        for(j=LEFT_EYE_MID; j< LEFT_EYE_END_COLUMN + 1; j++)
-        {
-            blinkedEye = (closedeye[eyeByte] & mask) | eyes[eyeIndex][eyeByte];
-            Wire.write(blinkedEye);
-            eyeByte += EYE_PAGES;
-        }
+    byte blinkPage;
+    byte blinkBits;
+    byte mask = 0;
+    byte blinkedEye;
 
-        Wire.endTransmission();
+    int maskBit, eyeByte, j;
 
+    if((blinkDepth == 0) | (blinkDepth > (EYE_PAGES * 8)))
+    {
+        return;
+    }
+
+
+    blinkPage = (blinkDepth-1) >> 3;
+
+    blinkBits = (blinkDepth - (8 * blinkPage));
+
+    for(maskBit=0; maskBit< blinkBits; maskBit++)
+    {
+        mask |= (1<<maskBit);
     }
 
     eyeByte = blinkPage;
 
-    if(right)
-
-        StartTransfer(RIGHT_EYE_START_COLUMN,RIGHT_EYE_END_COLUMN, blinkPage, blinkPage);
+    StartTransfer(RIGHT_EYE_START_COLUMN,RIGHT_EYE_END_COLUMN, blinkPage, blinkPage);
 
     Wire.beginTransmission(BOTFACE_ADDRESS);
     Wire.write(BOTFACE_CONTROL_DATA_STREAM);
 
     for(j=RIGHT_EYE_START_COLUMN; j< RIGHT_EYE_MID; j++)
     {
-        blinkedEye = (closedeye[eyeByte] & mask) | eyes[eyeIndex][eyeByte];
+        blinkedEye = (closedeye[eyeByte] & mask) | eyePics[eyeIndex][eyeByte];
         Wire.write(blinkedEye);
         eyeByte += EYE_PAGES;
     }
@@ -356,7 +579,7 @@ static void CloseEye(byte eyeIndex, byte blinkDepth, bool left, bool right)
 
     for(j=RIGHT_EYE_MID; j< RIGHT_EYE_END_COLUMN + 1; j++)
     {
-        blinkedEye = (closedeye[eyeByte] & mask) | eyes[eyeIndex][eyeByte];
+        blinkedEye = (closedeye[eyeByte] & mask) | eyePics[eyeIndex][eyeByte];
         Wire.write(blinkedEye);
         eyeByte += EYE_PAGES;
     }
@@ -365,7 +588,7 @@ static void CloseEye(byte eyeIndex, byte blinkDepth, bool left, bool right)
 
 }
 
-static void OpenEye(byte eyeIndex, byte blinkDepth, bool left, bool right)
+static void OpenLeftEye(byte eyeIndex, byte blinkDepth)
 {
 
     byte blinkPage;
@@ -392,46 +615,69 @@ static void OpenEye(byte eyeIndex, byte blinkDepth, bool left, bool right)
 
     eyeByte = blinkPage;
 
-    if(left)
+
+    StartTransfer(LEFT_EYE_START_COLUMN,LEFT_EYE_END_COLUMN, blinkPage, blinkPage);
+
+
+    while(eyeByte < EYE_BYTES)
     {
 
-        StartTransfer(LEFT_EYE_START_COLUMN,LEFT_EYE_END_COLUMN, blinkPage, blinkPage);
+        Wire.beginTransmission(BOTFACE_ADDRESS);
+        Wire.write(BOTFACE_CONTROL_DATA_STREAM);
+
+        blinkedEye = (closedeye[eyeByte] & mask) | eyePics[eyeIndex][eyeByte];
+        Wire.write(blinkedEye);
+        eyeByte += EYE_PAGES;
+
+        Wire.endTransmission();
+    }
+
+}
+
+static void OpenRightEye(byte eyeIndex, byte blinkDepth)
+{
+
+    byte blinkPage;
+    byte blinkBits;
+    byte mask = 0;
+    byte blinkedEye;
+
+    int maskBit, eyeByte;
+
+    if((blinkDepth >= (EYE_PAGES * 8)))
+    {
+        return;
+    }
 
 
-        while(eyeByte < EYE_BYTES)
-        {
+    blinkPage = blinkDepth >> 3;
 
-            Wire.beginTransmission(BOTFACE_ADDRESS);
-            Wire.write(BOTFACE_CONTROL_DATA_STREAM);
+    blinkBits = blinkDepth & 7;
 
-            blinkedEye = (closedeye[eyeByte] & mask) | eyes[eyeIndex][eyeByte];
-            Wire.write(blinkedEye);
-            eyeByte += EYE_PAGES;
-
-            Wire.endTransmission();
-        }
-
+    for(maskBit=0; maskBit< blinkBits; maskBit++)
+    {
+        mask |= (1<<maskBit);
     }
 
     eyeByte = blinkPage;
 
-    if(right)
+    
+
+
+    StartTransfer(RIGHT_EYE_START_COLUMN,RIGHT_EYE_END_COLUMN,blinkPage, blinkPage);
+
+    while(eyeByte < EYE_BYTES)
     {
-        StartTransfer(RIGHT_EYE_START_COLUMN,RIGHT_EYE_END_COLUMN,blinkPage, blinkPage);
+        Wire.beginTransmission(BOTFACE_ADDRESS);
+        Wire.write(BOTFACE_CONTROL_DATA_STREAM);
 
-        while(eyeByte < EYE_BYTES)
-        {
-            Wire.beginTransmission(BOTFACE_ADDRESS);
-            Wire.write(BOTFACE_CONTROL_DATA_STREAM);
+        blinkedEye = (closedeye[eyeByte] & mask) | eyePics[eyeIndex][eyeByte];
+        Wire.write(blinkedEye);
+        eyeByte += EYE_PAGES;
 
-            blinkedEye = (closedeye[eyeByte] & mask) | eyes[eyeIndex][eyeByte];
-            Wire.write(blinkedEye);
-            eyeByte += EYE_PAGES;
-
-            Wire.endTransmission(); 
-        }
-
+        Wire.endTransmission(); 
     }
+
 }
 
 static void ShowMouth(ROBOT_MOUTH mouth)
@@ -453,7 +699,6 @@ static void ShowMouth(ROBOT_MOUTH mouth)
         Wire.endTransmission();
     }
 }
-
 
 static void ScreenInit(void)
 {

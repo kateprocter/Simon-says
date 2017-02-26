@@ -1,7 +1,19 @@
 #ifndef BOTFACE_H
 #define BOTFACE_H
 
+#include "mouth.h"
+
 #define BOTFACE_ADDRESS 0x3C
+
+typedef enum
+{
+    EYE_COMMAND_LOOK,
+    EYE_COMMAND_BLINK,
+    EYE_COMMAND_SLEEP,
+    EYE_COMMAND_WAKE,
+    EYE_COMMAND_PAUSE,
+    
+}EYE_COMMAND;
 
 //Control
 #define BOTFACE_CONTROL_CMD_SINGLE          0x80
@@ -56,7 +68,9 @@
 #define BOTFACE_NUM_ROWS    64
 
 extern void InitBotFace(void);
+extern void SetMouth(ROBOT_MOUTH mouth);
 extern void UpdateEyes(void);
+extern bool QueueEyeAction(EYE_COMMAND action, int leftTarget, int rightTarget, int pause, void (*callback)(void));
 
 
 #endif

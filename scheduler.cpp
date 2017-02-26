@@ -1,7 +1,7 @@
 #include "scheduler.h"
 #include "IntervalTimer.h"
 
-#define MAX_TASKS 6
+#define MAX_TASKS 40
 
 typedef struct
 {

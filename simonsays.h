@@ -1,0 +1,33 @@
+#ifndef SIMONSAYS_H
+#define SIMONSAYS_H
+
+
+#define ROBOT_COMMAND 0x80
+#define SIMON_SAYS_INSTRUCTION 0x40
+#define NO_SIMON_INSTRUCTION 0x20
+#define IS_INSTRUCTION_COMPLETE 0x10
+
+#define INSTRUCTION_NOT_COMPLETE 0x01
+#define INSTRUCTION_OBEYED 0x02
+#define INSTRUCTION_MISTAKE 0x03
+
+#define SIMON_SPIN      0x00
+#define SIMON_FORWARD   0x01
+#define SIMON_BACKWARD  0x02
+#define SIMON_FLASH     0x03
+#define SIMON_RAINBOW   0x04
+#define SIMON_SLEEP     0x05
+#define SIMON_BLINK     0x06
+#define SIMON_CROSS_EYE 0x07
+#define SIMON_MAX       0x08
+
+
+#define ROBOT_OUT       0x01
+
+
+#endif
+
+
+
+
+
