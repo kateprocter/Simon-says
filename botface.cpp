@@ -68,6 +68,7 @@ static int FindNextEyePosition(int current, int target, EYE_DIR dir);
 static ROBOT_MOUTH nextMouth;
 
 static void GetNextQueuedEyeAction(void);
+static EYE_DIR GetShortestWay(int current, int target);
 static void GetRandomEyeAction(void);
 static void GetNextEyeAction(void);
 static void ClearBotFace(void);
@@ -291,6 +292,7 @@ static void GetNextEyeAction(void)
 
 static void GetNextQueuedEyeAction(void)
 {
+    
     Serial.println("Get Queued action");
     
     switch(actionQueue[nextPendingAction].action)
@@ -298,7 +300,9 @@ static void GetNextQueuedEyeAction(void)
     case EYE_COMMAND_LOOK:
 
         eyes.left.target = actionQueue[nextPendingAction].leftTarget;
+        eyes.left.dir = GetShortestWay(eyes.left.current, eyes.left.target);
         eyes.right.target = actionQueue[nextPendingAction].rightTarget;
+        eyes.right.dir = GetShortestWay(eyes.right.current, eyes.right.target);
         eyes.action = EYES_MOVE;
         eyes.pauseCount = actionQueue[nextPendingAction].pause;
         break;
@@ -332,6 +336,26 @@ static void GetNextQueuedEyeAction(void)
     numPendingActions--;
     nextPendingAction = (nextPendingAction + 1) % MAX_PENDING_ACTIONS;
     
+}
+
+static EYE_DIR GetShortestWay(int current, int target)
+{
+    if(current < target)
+    {
+        if(target - current < NUM_EYES/2)
+        {
+            return EYE_R;
+        }
+        return EYE_L;
+    }
+    else
+    {
+        if(current-target < NUM_EYES/2)
+        {
+            return EYE_L;
+        }
+        return EYE_R;
+    }
 }
 
 static void GetRandomEyeAction(void)
