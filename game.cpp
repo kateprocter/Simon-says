@@ -83,8 +83,22 @@ void DoCrossEye(ACTION_COMPLETE callback)
     QueueEyeAction(EYE_COMMAND_LOOK, 0,0,0, NULL);
     QueueEyeAction(EYE_COMMAND_LOOK, 32, 8, 100, NULL);
     QueueEyeAction(EYE_COMMAND_LOOK, 0, 0, 0, EndCrossEye);
-    actionCompleteCallback = callback;
     
+}
+
+void DoCelebrate(ACTION_COMPLETE callback)
+{
+    actionCompleteCallback = callback;
+    digitalWrite(L_FORWARD, HIGH);
+    ScheduleTask(NextColour, 250, true);
+    ScheduleTask(EndCelebrate, 3000, false);
+}
+
+void DoShock(ACTION_COMPLETE callback)
+{
+    actionCompleteCallback = callback;
+    SetMouth(ROBOTMOUTH_CONFUSE);
+    ScheduleTask(EndShock, 2000, false);
 }
 
 void EndSpin(void)
@@ -132,6 +146,23 @@ void EndBlink(void)
 void EndCrossEye(void)
 {
     (*actionCompleteCallback)();
+}
+
+void EndCelebrate(void)
+{
+    MotorsOff();
+    CancelTask(NextColour);
+    ResetLED();
+    (*actionCompleteCallback)();
+    
+    
+}
+
+void EndShock(void)
+{
+    SetMouth(ROBOTMOUTH_HAPPY);
+    (*actionCompleteCallback)();
+    
 }
 
 void MotorsOff(void)

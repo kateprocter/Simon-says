@@ -11,10 +11,12 @@
 #define EEPROM_SEED 0
 #define EEPROM_COL 1
 
-static bool robotBusy = false;
-static bool robotOut = false;
+RF24 radio(14,10);
 
+byte address[] = {0xCA, 0xCA, 0xCA, 0xCA, 0x01};
 
+ROBOT_STATE robotState;
+bool        robotObey;
 
 
 void setup()
@@ -24,6 +26,18 @@ void setup()
     randSeed = EEPROM.read(0);
     randomSeed(randSeed);
     EEPROM.write(EEPROM_SEED, random(0xFF));
+
+    Serial.begin(9600);
+    delay(2000);
+    
+    radio.begin();
+    radio.setAutoAck(1);                    // Ensure autoACK is enabled
+    radio.enableAckPayload();               // Allow optional ack payloads
+    radio.enableDynamicPayloads();
+    radio.setRetries(5,15);                 // Smallest time between retries, max no. of retries
+    radio.openReadingPipe(1,address);
+    radio.printDetails();
+    radio.startListening();                 // Start listening
     
     InitLED(LED_COLOUR(EEPROM.read(EEPROM_COL)));
     InitBotFace();
@@ -32,130 +46,92 @@ void setup()
     ScheduleTask(UpdateEyes, 10, true);
     RunScheduler();
 
-    Serial.begin(9600);
-    
+    robotState = ROBOT_IDLE;
+  
 }
 
 
 
 void loop()
 {
+    byte packet;
+    byte rxpipe;
+    byte response;
 
-    int b;
-    
-    if(!robotBusy)
+    if(radio.available(&rxpipe))
     {
-        if(Serial.available())
+        while(radio.available(&rxpipe))
         {
-            b=Serial.read();
-            Serial.println(b);
-            parseGameMove(b);
+            radio.read(&packet,1);
         }
+
+        Serial.println("Got packet");
+
+        Serial.println(packet);
+        doCommand(packet);
+    
+        switch(robotState)
+        {
+        case ROBOT_IDLE:
+            response = I_AM_IDLE;
+            break;
+        case ROBOT_BUSY:
+            response = I_AM_BUSY;
+            break;
+        case ROBOT_WRONG:
+            response = I_AM_WRONG;
+            break;
+        }
+    
+        radio.writeAckPayload(1, &response, 1);
     }
 
 }
 
-bool parseGameMove(byte message)
+void doCommand(byte packet)
 {
- 
-    switch(message)
+    if((packet & SIMON_SAYS) && (robotState == ROBOT_IDLE))
     {
-    case 'A':
-        SimonSays(0);
-        break;
+        SimonSays(packet & COMMAND_MASK);
+    }
+    else if ((packet & UNSIMON_SAYS) && (robotState == ROBOT_IDLE))
+    {
+        SimonSays(packet & COMMAND_MASK);
+    }
+    else if(packet & MUST)
+    {
+        SimonSays(packet & COMMAND_MASK);
+    }
+}
 
-    case 'B':
-        SimonSays(1);
+void mustDo(int instruction)
+{
+    switch (instruction)
+    {
+    case GO_IDLE:
+        SetMouth(ROBOTMOUTH_HAPPY);
+        robotState = ROBOT_IDLE;
         break;
-
-    case 'C':
-        SimonSays(2);
+    case THIS_BOT_OUT:
+        SetMouth(ROBOTMOUTH_SAD);
+        robotState = ROBOT_BUSY;
         break;
-
-    case 'D':
-        SimonSays(3);
+    case OTHER_BOT_OUT:
+        robotObey = true;
+        DoShock(GameMoveComplete);
         break;
-
-    case 'E':
-
-        SimonSays(4);
-        break;
-        
-    case 'F':
-        SimonSays(5);
-        break;
-
-    case 'G':
-        SimonSays(6);
-        break;
-
-    case 'H':
-        SimonSays(7);
-        break;
-
-    case 'I':
-        NoSimon(0);
-        break;
-
-    case 'J':
-        NoSimon(1);
-        break;
-
-    case 'K':
-
-        NoSimon(2);
-        break;
-        
-    case 'L':
-        NoSimon(3);
-        break;
-        
-     case 'M':
-        NoSimon(4);
-        break;
-
-    case 'N':
-        NoSimon(5);
-        break;
-
-    case 'O':
-
-        NoSimon(6);
-        break;
-        
-    case 'P':
-        NoSimon(7);
-        break;
-
-    case 'X':
-        RobotOut();
+    case BOT_WINS:
+        robotObey = true;
+        DoCelebrate(GameMoveComplete);
         break;
     default:
         break;
+        
+    }
     
-    }
-
- /*
-    if(message & SIMON_SAYS_INSTRUCTION)
-    {
-        SetMouth(ROBOTMOUTH_HAPPY);
-        SimonSays(message & 0x0F);
-        robotBusy = true;
-    }
-    else if(message & NO_SIMON_INSTRUCTION)
-    {
-        SetMouth(ROBOTMOUTH_HAPPY);
-        NoSimon(message & 0x0F);
-        robotBusy = true;
-    }
-    else if(message  == (ROBOT_COMMAND | ROBOT_OUT))
-    {
-        RobotOut();
-    }
-    */
 }
 
-bool SimonSays(int instruction)
+void SimonSays(int instruction)
 {
     int obey = random(0,5);
     SetMouth(ROBOTMOUTH_HAPPY);
@@ -163,20 +139,20 @@ bool SimonSays(int instruction)
     if(obey == 0)
     {
         instruction  = (instruction + random(1,SIMON_MAX)) % SIMON_MAX;
-        robotOut = true;
+        robotObey = false;
     }
     else
     {
-        robotOut = false;
+        robotObey = true;
     }
 
-   GameMove(instruction);
+    robotState = ROBOT_BUSY;
 
-    return ((obey == 0) ? false : true);
+    GameMove(instruction);
     
 }
 
-bool NoSimon(int instruction)
+void NoSimon(int instruction)
 {
     int obey = random(0,5);
 
@@ -185,14 +161,14 @@ bool NoSimon(int instruction)
     if(obey == 0)
     {
        GameMove(instruction);
-       robotOut = true;
+       robotObey = false;
+       robotState = ROBOT_BUSY;
     }
     else
-    {
-        robotOut = false;
+    {       
+        robotObey = true;
+        robotState = ROBOT_IDLE;
     }
-
-    return ((obey == 0) ? false : true);
     
 }
 
@@ -241,25 +217,15 @@ void GameMove(int instruction)
 
 void GameMoveComplete(void)
 {
-    Serial.println("Game move complete");
-    
-    if(robotOut)
+    if(robotObey)
     {
-        Serial.println("error!");
-        SetMouth(ROBOTMOUTH_CONFUSE);
-        robotBusy = false;
-
+        robotState = ROBOT_IDLE;
     }
     else
     {
-        Serial.println("OK");
-        robotBusy = false;
+        robotState = ROBOT_WRONG;
+        SetMouth(ROBOTMOUTH_CONFUSE);
     }
 }
 
-void RobotOut(void)
-{
-    SetMouth(ROBOTMOUTH_SAD);
-}
-  
 
