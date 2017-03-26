@@ -6,9 +6,9 @@ typedef enum
     LED_RED = 0,
     LED_GREEN,
     LED_BLUE,
-    LED_CYAN,
-    LED_YELLOW,
     LED_MAGENTA,
+    LED_YELLOW,
+    LED_CYAN,
     LED_WHITE,
     LED_OFF,
     LED_MAX_COLOUR

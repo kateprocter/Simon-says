@@ -9,11 +9,12 @@
 #include "game.h"
 
 #define EEPROM_SEED 0
-#define EEPROM_COL 1
+#define EEPROM_ID   1
+#define ID_BYTE     4
 
 RF24 radio(14,10);
 
-byte address[] = {0xCA, 0xCA, 0xCA, 0xCA, 0x01};
+byte address[] = {0xCA, 0xCA, 0xCA, 0xCA, 0x00};
 
 ROBOT_STATE robotState;
 bool        robotObey;
@@ -22,10 +23,15 @@ bool        robotObey;
 void setup()
 {
     int randSeed;
+    byte botID;
 
-    randSeed = EEPROM.read(0);
+    randSeed = EEPROM.read(EEPROM_SEED);
+    botID = EEPROM.read(EEPROM_ID);
+    
     randomSeed(randSeed);
     EEPROM.write(EEPROM_SEED, random(0xFF));
+
+    address[ID_BYTE] = (botID + 1);
 
     Serial.begin(9600);
     delay(2000);
@@ -36,10 +42,10 @@ void setup()
     radio.enableDynamicPayloads();
     radio.setRetries(5,15);                 // Smallest time between retries, max no. of retries
     radio.openReadingPipe(1,address);
-    radio.printDetails();
     radio.startListening();                 // Start listening
     
-    InitLED(LED_COLOUR(EEPROM.read(EEPROM_COL)));
+    InitLED(LED_COLOUR(botID));
+    InitGame();
     InitBotFace();
     InitScheduler();
 
@@ -60,11 +66,8 @@ void loop()
 
     if(radio.available(&rxpipe))
     {
-        while(radio.available(&rxpipe))
-        {
-            radio.read(&packet,1);
-        }
-
+        radio.read(&packet,1);
+     
         Serial.println("Got packet");
 
         Serial.println(packet);
@@ -96,11 +99,11 @@ void doCommand(byte packet)
     }
     else if ((packet & UNSIMON_SAYS) && (robotState == ROBOT_IDLE))
     {
-        SimonSays(packet & COMMAND_MASK);
+        NoSimon(packet & COMMAND_MASK);
     }
     else if(packet & MUST)
     {
-        SimonSays(packet & COMMAND_MASK);
+        mustDo(packet & COMMAND_MASK);
     }
 }
 
@@ -118,10 +121,12 @@ void mustDo(int instruction)
         break;
     case OTHER_BOT_OUT:
         robotObey = true;
+        robotState = ROBOT_BUSY;
         DoShock(GameMoveComplete);
         break;
     case BOT_WINS:
         robotObey = true;
+        robotState = ROBOT_BUSY;
         DoCelebrate(GameMoveComplete);
         break;
     default:
@@ -135,6 +140,9 @@ void SimonSays(int instruction)
 {
     int obey = random(0,5);
     SetMouth(ROBOTMOUTH_HAPPY);
+
+    Serial.print("Simon says ");
+    Serial.println( instruction);
 
     if(obey == 0)
     {

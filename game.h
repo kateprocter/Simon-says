@@ -3,6 +3,7 @@
 
 typedef void (*ACTION_COMPLETE) (void);
 
+extern void InitGame(void);
 extern void DoSpin(ACTION_COMPLETE callback);
 extern void DoForward(ACTION_COMPLETE callback);
 extern void DoBackward(ACTION_COMPLETE callback);

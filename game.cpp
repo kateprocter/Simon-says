@@ -6,8 +6,8 @@
 
 #define L_FORWARD       16 
 #define L_BACKWARD      17
-#define R_FORWARD       22
-#define R_BACKWARD      23
+#define R_FORWARD       23
+#define R_BACKWARD      22
 
 static ACTION_COMPLETE actionCompleteCallback;
 
@@ -19,7 +19,6 @@ void InitGame(void)
     pinMode(L_BACKWARD, OUTPUT);
     pinMode(R_FORWARD, OUTPUT);
     pinMode(R_BACKWARD, OUTPUT);
-
     
 }
 
@@ -36,14 +35,14 @@ void DoForward(ACTION_COMPLETE callback)
     actionCompleteCallback = callback;
     digitalWrite(L_FORWARD, HIGH);
     digitalWrite(R_FORWARD, HIGH);
-    ScheduleTask(EndForward, 1000, false);
+    ScheduleTask(EndForward, 500, false);
 }
 void DoBackward(ACTION_COMPLETE callback)
 {
     actionCompleteCallback = callback;
     digitalWrite(L_BACKWARD, HIGH);
     digitalWrite(R_BACKWARD, HIGH);
-    ScheduleTask(EndBackward, 1000, false);
+    ScheduleTask(EndBackward, 500, false);
 }
 
 void DoFlash(ACTION_COMPLETE callback)
@@ -97,7 +96,7 @@ void DoCelebrate(ACTION_COMPLETE callback)
 void DoShock(ACTION_COMPLETE callback)
 {
     actionCompleteCallback = callback;
-    SetMouth(ROBOTMOUTH_CONFUSE);
+    SetMouth(ROBOTMOUTH_SHOCK);
     ScheduleTask(EndShock, 2000, false);
 }
 

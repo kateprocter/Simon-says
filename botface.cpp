@@ -293,8 +293,6 @@ static void GetNextEyeAction(void)
 static void GetNextQueuedEyeAction(void)
 {
     
-    Serial.println("Get Queued action");
-    
     switch(actionQueue[nextPendingAction].action)
     {
     case EYE_COMMAND_LOOK:
