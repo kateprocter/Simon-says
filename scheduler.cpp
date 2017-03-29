@@ -73,7 +73,7 @@ bool CancelTask(TASK task)
             return true;
         }
     }
-
+    
     return false;
 
 }
@@ -93,6 +93,11 @@ static void TaskScheduler(void)
                 {
                     taskList[i].counter = taskList[i].periodTicks;
                 }
+                else
+                {
+                    taskList[i].task = NULL;
+                }
+
             }
         }
     }

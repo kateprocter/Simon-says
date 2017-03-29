@@ -33,9 +33,6 @@ void setup()
 
     address[ID_BYTE] = (botID + 1);
 
-    Serial.begin(9600);
-    delay(2000);
-    
     radio.begin();
     radio.setAutoAck(1);                    // Ensure autoACK is enabled
     radio.enableAckPayload();               // Allow optional ack payloads
@@ -67,10 +64,6 @@ void loop()
     if(radio.available(&rxpipe))
     {
         radio.read(&packet,1);
-     
-        Serial.println("Got packet");
-
-        Serial.println(packet);
         doCommand(packet);
     
         switch(robotState)
@@ -85,6 +78,7 @@ void loop()
             response = I_AM_WRONG;
             break;
         }
+
     
         radio.writeAckPayload(1, &response, 1);
     }
@@ -140,9 +134,6 @@ void SimonSays(int instruction)
 {
     int obey = random(0,5);
     SetMouth(ROBOTMOUTH_HAPPY);
-
-    Serial.print("Simon says ");
-    Serial.println( instruction);
 
     if(obey == 0)
     {

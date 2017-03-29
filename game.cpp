@@ -4,14 +4,16 @@
 #include "scheduler.h"
 #include "botface.h"
 
-#define L_FORWARD       16 
-#define L_BACKWARD      17
+#define L_FORWARD       17
+#define L_BACKWARD      16
 #define R_FORWARD       23
 #define R_BACKWARD      22
 
 static ACTION_COMPLETE actionCompleteCallback;
 
 static void MotorsOff(void);
+static void SpinL(void);
+static void SpinR(void);
 
 void InitGame(void)
 {
@@ -25,8 +27,8 @@ void InitGame(void)
 void DoSpin(ACTION_COMPLETE callback)
 {
     actionCompleteCallback = callback;
-    digitalWrite(L_FORWARD, HIGH);
-    ScheduleTask(EndSpin, 2000, false);
+    SpinL();
+    ScheduleTask(EndSpin, 1000, false);
 }
 
 
@@ -88,16 +90,21 @@ void DoCrossEye(ACTION_COMPLETE callback)
 void DoCelebrate(ACTION_COMPLETE callback)
 {
     actionCompleteCallback = callback;
-    digitalWrite(L_FORWARD, HIGH);
-    ScheduleTask(NextColour, 250, true);
-    ScheduleTask(EndCelebrate, 3000, false);
+    SpinL();
+    ScheduleTask(SpinR, 250, false);
+    ScheduleTask(SpinL, 500, false);
+    ScheduleTask(SpinR, 750, false);
+    ScheduleTask(SpinL, 1000, false);
+    ScheduleTask(SpinR, 1250, false);
+    ScheduleTask(NextColour, 100, true);
+    ScheduleTask(EndCelebrate, 1500, false);
 }
 
 void DoShock(ACTION_COMPLETE callback)
 {
     actionCompleteCallback = callback;
     SetMouth(ROBOTMOUTH_SHOCK);
-    ScheduleTask(EndShock, 2000, false);
+    ScheduleTask(EndShock, 1000, false);
 }
 
 void EndSpin(void)
@@ -171,4 +178,22 @@ void MotorsOff(void)
     digitalWrite(R_FORWARD ,LOW);
     digitalWrite(R_BACKWARD,LOW);
 }
+
+void SpinL(void)
+{
+    digitalWrite(L_FORWARD ,HIGH);
+    digitalWrite(L_BACKWARD ,LOW);
+    digitalWrite(R_FORWARD ,LOW);
+    digitalWrite(R_BACKWARD,HIGH);
+    
+}
+
+void SpinR(void)
+{
+    digitalWrite(L_FORWARD ,LOW);
+    digitalWrite(L_BACKWARD ,HIGH);
+    digitalWrite(R_FORWARD ,HIGH);
+    digitalWrite(R_BACKWARD,LOW);
+}
+
 
